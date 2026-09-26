@@ -95,7 +95,7 @@ end
 local HardcoverView = InputContainer:extend{
     vm = nil,
     cover_file = nil,
-    font_size = nil, -- unscaled base size; defaults to 18
+    font_size = 20, -- unscaled base size
 }
 
 function HardcoverView:init()
@@ -151,7 +151,7 @@ function HardcoverView:init()
     end
 
     -- Metadata (left column), sized relative to the base font
-    local base = self.font_size or 18
+    local base = self.font_size
     local function face(name, ratio)
         return Font:getFace(name, math.floor(base * ratio + 0.5))
     end

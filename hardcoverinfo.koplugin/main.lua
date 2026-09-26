@@ -562,15 +562,8 @@ function HardcoverInfo:downloadCover(id, url)
     if Api.download(url, path) then return path end
 end
 
--- The book's font size for reflowable documents (EPUB etc.), nil otherwise.
-function HardcoverInfo:getFontSize()
-    local cfg = self.ui.rolling and self.ui.document and self.ui.document.configurable
-    local size = cfg and tonumber(cfg.font_size)
-    return size and math.max(12, math.min(size, 40))
-end
-
 function HardcoverInfo:display(vm)
-    UIManager:show(HardcoverView:new{ vm = vm, cover_file = vm.cover_file, font_size = self:getFontSize() })
+    UIManager:show(HardcoverView:new{ vm = vm, cover_file = vm.cover_file })
 end
 
 function HardcoverInfo:showError(err, heading)
