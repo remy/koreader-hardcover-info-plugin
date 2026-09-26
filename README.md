@@ -9,7 +9,10 @@ Shows details of the open book from [Hardcover](https://hardcover.app):
 - community rating
 - cover
 
-![Screenshot](assets/screenshot.png)
+<p>
+  <img src="assets/screenshot.png" alt="Book info screen" width="45%">
+  <img src="assets/menu.png" alt="Plugin menu" width="45%">
+</p>
 
 ## Install
 
