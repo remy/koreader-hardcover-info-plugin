@@ -8,14 +8,25 @@ local Dispatcher = require("dispatcher")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local NetworkMgr = require("ui/network/manager")
-local TextViewer = require("ui/widget/textviewer")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
+local lfs = require("libs/libkoreader-lfs")
 local util = require("util")
+local DataStorage = require("datastorage")
 local _ = require("gettext")
 local T = require("ffi/util").template
 
 local Api = require("hardcoverinfo_api")
+local HardcoverView = require("hardcoverinfo_view")
+
+-- Place the menu entry in the main (☰) menu, right after "Book information".
+local reader_order = require("ui/elements/reader_menu_order")
+if not util.arrayContains(reader_order.main, "hardcoverinfo") then
+    local pos = util.arrayContains(reader_order.main, "book_info")
+    table.insert(reader_order.main, pos and pos + 1 or #reader_order.main + 1, "hardcoverinfo")
+end
+
+local COVER_DIR = DataStorage:getDataDir() .. "/cache/hardcoverinfo"
 
 local TOKEN_KEY = "hardcoverinfo_token"
 local CACHE_KEY = "hardcoverinfo"
@@ -28,7 +39,7 @@ local CLIENT_ID = "78640659-b53c-42ad-9c03-68ac0487677c"
 
 local HardcoverInfo = WidgetContainer:extend{
     name = "hardcoverinfo",
-    is_doc_only = false,
+    is_doc_only = true,
 }
 
 -- Helpers -------------------------------------------------------------------
@@ -89,6 +100,7 @@ local function toViewModel(book)
         rating = tonumber(book.rating),
         ratings_count = tonumber(book.ratings_count),
         pages = tonumber(book.pages),
+        cover_url = type(book.image) == "table" and str(book.image.url) or nil,
         authors = {},
         series = {},
     }
@@ -132,50 +144,6 @@ local function toViewModel(book)
     return vm
 end
 
-local function formatInfo(vm)
-    local lines = {}
-    local function add(s) table.insert(lines, s) end
-
-    add(vm.title or "?")
-    if vm.subtitle then add(vm.subtitle) end
-    add("")
-    if #vm.authors > 0 then add(T(_("Author: %1"), table.concat(vm.authors, ", "))) end
-    if vm.year then add(T(_("Published: %1"), vm.year)) end
-    if vm.pages then add(T(_("Pages: %1"), vm.pages)) end
-    if vm.rating and vm.rating > 0 then
-        add(T(_("Rating: ★ %1 / 5 (%2 ratings)"), string.format("%.2f", vm.rating), thousands(vm.ratings_count or 0)))
-    else
-        add(_("Rating: not yet rated"))
-    end
-
-    if #vm.series == 0 then
-        add("")
-        add(_("Series: not part of a series"))
-    end
-    for __, s in ipairs(vm.series) do
-        add("")
-        local head = s.position and T(_("Series: %1, book %2"), s.name, s.position) or T(_("Series: %1"), s.name)
-        if s.count then head = head .. " " .. T(_("(of %1)"), s.count) end
-        add(head)
-        for __, b in ipairs(s.books) do
-            local line = string.format("%s %s. %s", b.current and "▶" or "  ", b.position or "?", b.title)
-            if b.year then line = line .. " (" .. b.year .. ")" end
-            add(line)
-        end
-    end
-
-    if vm.description then
-        add("")
-        add(_("Description"))
-        add(vm.description)
-    end
-    if vm.slug then
-        add("")
-        add("https://hardcover.app/books/" .. vm.slug)
-    end
-    return table.concat(lines, "\n")
-end
-
 -- Plugin --------------------------------------------------------------------
 
 function HardcoverInfo:init()
@@ -201,7 +169,6 @@ function HardcoverInfo:addToMainMenu(menu_items)
     local has_doc = function() return self.ui.document ~= nil end
     menu_items.hardcoverinfo = {
         text = _("Hardcover book info"),
-        sorting_hint = "search",
         sub_item_table = {
             {
                 text = _("Show book info"),
@@ -573,15 +540,26 @@ function HardcoverInfo:fetchAndShow(id)
     end)
     if not book then return self:showError(err) end
     local vm = toViewModel(book)
+    if vm.cover_url then
+        vm.cover_file = withLoading(_("Fetching cover…"), function()
+            return self:downloadCover(vm.id or id, vm.cover_url)
+        end)
+    end
     self.ui.doc_settings:saveSetting(CACHE_KEY, { id = id, book = vm, fetched = os.time() })
     self:display(vm)
 end
 
+function HardcoverInfo:downloadCover(id, url)
+    if lfs.attributes(COVER_DIR, "mode") ~= "directory" then
+        util.makePath(COVER_DIR)
+    end
+    local ext = (url:match("%.(%a+)$") or url:match("%.(%a+)%?") or "jpg"):lower()
+    local path = string.format("%s/%d.%s", COVER_DIR, id, ext)
+    if Api.download(url, path) then return path end
+end
+
 function HardcoverInfo:display(vm)
-    UIManager:show(TextViewer:new{
-        title = _("Hardcover"),
-        text = formatInfo(vm),
-    })
+    UIManager:show(HardcoverView:new{ vm = vm, cover_file = vm.cover_file })
 end
 
 function HardcoverInfo:showError(err, heading)
@@ -592,7 +570,6 @@ end
 
 -- Exposed for tests.
 HardcoverInfo._toViewModel = toViewModel
-HardcoverInfo._formatInfo = formatInfo
 HardcoverInfo._findIsbn = findIsbn
 HardcoverInfo._setClientId = function(id) CLIENT_ID = id end
 

@@ -36,6 +36,7 @@ query Book($id: Int!) {
     rating
     ratings_count
     pages
+    image { url }
     contributions {
       contribution
       author { name }
@@ -181,6 +182,25 @@ function Api.search(token, query, per_page)
         end
     end
     return hits
+end
+
+-- Download url to path. Returns true, or nil, error message.
+function Api.download(url, path)
+    local f = io.open(path, "wb")
+    if not f then return nil, "Cannot write " .. path end
+    socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT, socketutil.FILE_TOTAL_TIMEOUT)
+    local code, _, status = socket.skip(1, http.request{
+        url = url,
+        headers = { ["User-Agent"] = USER_AGENT },
+        sink = ltn12.sink.file(f),
+    })
+    socketutil:reset_timeout()
+    if code ~= 200 then
+        os.remove(path)
+        logger.warn("Hardcover: cover download failed", url, code, status)
+        return nil, "HTTP " .. tostring(code or status)
+    end
+    return true
 end
 
 function Api.getBook(token, id)

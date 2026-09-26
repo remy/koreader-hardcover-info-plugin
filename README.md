@@ -7,6 +7,9 @@ Shows details of the open book from [Hardcover](https://hardcover.app):
 - series, position, and the other books in it
 - description
 - community rating
+- cover
+
+![Screenshot](assets/screenshot.png)
 
 ## Install
 
@@ -14,7 +17,7 @@ Copy `hardcoverinfo.koplugin` into KOReader's `plugins` folder and restart.
 
 ## Sign in
 
-**Search → Hardcover book info → Sign in to Hardcover** shows a code. On a phone or computer, go to <https://hardcover.app/link>, enter the code and approve. The plugin picks up the token automatically and refreshes it as needed. **Sign out** revokes it.
+**☰ → Hardcover book info → Sign in to Hardcover** shows a code. On a phone or computer, go to <https://hardcover.app/link>, enter the code and approve. The plugin picks up the token automatically and refreshes it as needed. **Sign out** revokes it.
 
 ### One-off setup (plugin maintainer)
 
@@ -32,6 +35,6 @@ Without a client ID, use a personal token with the `read:catalog` scope (<https:
 
 ## Use
 
-**Search → Hardcover book info → Show book info**, or assign the *Hardcover book info* gesture.
+**☰ → Hardcover book info → Show book info** (below *Book information*), or assign the *Hardcover book info* gesture.
 
 The book is matched by ISBN, then title and author. If unsure, a list of candidates is shown. The match and details are cached per book; use **Refresh** to re-fetch or **Change matched book…** to fix a wrong match.
