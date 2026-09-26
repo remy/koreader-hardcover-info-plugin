@@ -26,10 +26,12 @@ if not util.arrayContains(reader_order.main, "hardcoverinfo") then
     table.insert(reader_order.main, pos and pos + 1 or #reader_order.main + 1, "hardcoverinfo")
 end
 
-local COVER_DIR = DataStorage:getDataDir() .. "/cache/hardcoverinfo"
+local COVER_DIR = DataStorage:getFullDataDir() .. "/cache/hardcoverinfo"
 
 local TOKEN_KEY = "hardcoverinfo_token"
 local CACHE_KEY = "hardcoverinfo"
+-- Bump when the cached view model changes shape, forcing a re-fetch.
+local CACHE_VERSION = 2
 local TOKEN_URL = "https://hardcover.app/account/api?scope=read:catalog"
 local OAUTH_KEY = "hardcoverinfo_oauth"
 local SCOPE = "read:catalog"
@@ -100,7 +102,8 @@ local function toViewModel(book)
         rating = tonumber(book.rating),
         ratings_count = tonumber(book.ratings_count),
         pages = tonumber(book.pages),
-        cover_url = type(book.image) == "table" and str(book.image.url) or nil,
+        cover_url = type(book.image) == "table" and str(book.image.url)
+            or type(book.cached_image) == "table" and str(book.cached_image.url) or nil,
         authors = {},
         series = {},
     }
@@ -426,7 +429,8 @@ end
 function HardcoverInfo:showInfo(force_refresh)
     if not self.ui.document then return end
     local cached = self.ui.doc_settings:readSetting(CACHE_KEY)
-    if cached and cached.book and not force_refresh then
+    if cached and cached.book and cached.version == CACHE_VERSION and not force_refresh
+            and (not cached.book.cover_file or lfs.attributes(cached.book.cover_file, "mode") == "file") then
         return self:display(cached.book)
     end
     if not self:requireAuth(function() self:showInfo(force_refresh) end) then return end
@@ -545,7 +549,7 @@ function HardcoverInfo:fetchAndShow(id)
             return self:downloadCover(vm.id or id, vm.cover_url)
         end)
     end
-    self.ui.doc_settings:saveSetting(CACHE_KEY, { id = id, book = vm, fetched = os.time() })
+    self.ui.doc_settings:saveSetting(CACHE_KEY, { id = id, book = vm, fetched = os.time(), version = CACHE_VERSION })
     self:display(vm)
 end
 
@@ -558,8 +562,15 @@ function HardcoverInfo:downloadCover(id, url)
     if Api.download(url, path) then return path end
 end
 
+-- The book's font size for reflowable documents (EPUB etc.), nil otherwise.
+function HardcoverInfo:getFontSize()
+    local cfg = self.ui.rolling and self.ui.document and self.ui.document.configurable
+    local size = cfg and tonumber(cfg.font_size)
+    return size and math.max(12, math.min(size, 40))
+end
+
 function HardcoverInfo:display(vm)
-    UIManager:show(HardcoverView:new{ vm = vm, cover_file = vm.cover_file })
+    UIManager:show(HardcoverView:new{ vm = vm, cover_file = vm.cover_file, font_size = self:getFontSize() })
 end
 
 function HardcoverInfo:showError(err, heading)

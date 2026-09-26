@@ -24,6 +24,7 @@ local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local lfs = require("libs/libkoreader-lfs")
+local logger = require("logger")
 local _ = require("gettext")
 local T = require("ffi/util").template
 local Screen = Device.screen
@@ -36,10 +37,9 @@ h2.first { margin-top: 0; }
 p { margin: 0 0 0.5em 0; }
 table { border-collapse: collapse; margin-bottom: 0.5em; }
 td { padding: 0.1em 0; vertical-align: top; }
-td.pos { color: #666666; padding-right: 0.8em; text-align: right; }
-.year { color: #666666; }
+td.pos { padding-right: 0.8em; text-align: right; }
 .current { font-weight: bold; }
-.link { font-size: 0.8em; color: #666666; margin-top: 1.2em; }
+.link { font-size: 0.8em; margin-top: 1.2em; }
 ]]
 
 local function thousands(n)
@@ -70,7 +70,7 @@ local function buildHtml(vm)
         add("<table>")
         for __, b in ipairs(s.books) do
             local title = esc(b.title)
-            if b.year then title = title .. ' <span class="year">(' .. b.year .. ')</span>' end
+            if b.year then title = title .. " (" .. b.year .. ")" end
             add(string.format('<tr%s><td class="pos">%s</td><td>%s</td></tr>',
                 b.current and ' class="current"' or "", esc(b.position or ""), title))
         end
@@ -95,6 +95,7 @@ end
 local HardcoverView = InputContainer:extend{
     vm = nil,
     cover_file = nil,
+    font_size = nil, -- unscaled base size; defaults to 18
 }
 
 function HardcoverView:init()
@@ -141,10 +142,20 @@ function HardcoverView:init()
             w:_render()
             return w
         end)
-        if ok then cover = img else cover_w = 0 end
+        if ok then
+            cover = img
+        else
+            logger.warn("Hardcover: cannot render cover", self.cover_file, img)
+            cover_w = 0
+        end
     end
 
-    -- Metadata (left column)
+    -- Metadata (left column), sized relative to the base font
+    local base = self.font_size or 18
+    local function face(name, ratio)
+        return Font:getFace(name, math.floor(base * ratio + 0.5))
+    end
+
     local text_w = cover and (inner_w - cover_w - pad) or inner_w
     local meta = VerticalGroup:new{ align = "left" }
     local function line(text, face, opts)
@@ -154,37 +165,37 @@ function HardcoverView:init()
             face = face,
             width = text_w,
             bold = opts.bold,
-            fgcolor = opts.gray and Blitbuffer.COLOR_DARK_GRAY or Blitbuffer.COLOR_BLACK,
+            fgcolor = Blitbuffer.COLOR_BLACK,
         })
         table.insert(meta, VerticalSpan:new{ width = opts.gap or Size.padding.small })
     end
 
-    line(vm.title or "?", Font:getFace("tfont", 24), { gap = Size.padding.tiny })
-    if vm.subtitle then line(vm.subtitle, Font:getFace("cfont", 17), { gray = true }) end
+    line(vm.title or "?", face("tfont", 1.35), { gap = Size.padding.tiny })
+    if vm.subtitle then line(vm.subtitle, face("cfont", 0.95)) end
     table.insert(meta, VerticalSpan:new{ width = Size.padding.default })
     if #vm.authors > 0 then
-        line(table.concat(vm.authors, ", "), Font:getFace("cfont", 19), { bold = true, gap = Size.padding.default })
+        line(table.concat(vm.authors, ", "), face("cfont", 1.05), { bold = true, gap = Size.padding.default })
     end
 
     local facts = {}
     if vm.year then table.insert(facts, tostring(vm.year)) end
     if vm.pages then table.insert(facts, T(_("%1 pages"), thousands(vm.pages))) end
-    if #facts > 0 then line(table.concat(facts, " · "), Font:getFace("cfont", 17), { gray = true }) end
+    if #facts > 0 then line(table.concat(facts, " · "), face("cfont", 0.95)) end
 
     if vm.rating and vm.rating > 0 then
-        line(string.format("%s  %.2f", stars(vm.rating), vm.rating), Font:getFace("cfont", 19), { gap = 0 })
-        line(T(_("%1 ratings"), thousands(vm.ratings_count or 0)), Font:getFace("cfont", 15), { gray = true })
+        line(string.format("%s  %.2f", stars(vm.rating), vm.rating), face("cfont", 1.05), { gap = 0 })
+        line(T(_("%1 ratings"), thousands(vm.ratings_count or 0)), face("cfont", 0.85))
     else
-        line(_("Not yet rated"), Font:getFace("cfont", 17), { gray = true })
+        line(_("Not yet rated"), face("cfont", 0.95))
     end
 
     table.insert(meta, VerticalSpan:new{ width = Size.padding.default })
     if #vm.series == 0 then
-        line(_("Standalone"), Font:getFace("cfont", 17), { gray = true })
+        line(_("Standalone"), face("cfont", 0.95))
     else
         for __, s in ipairs(vm.series) do
             local txt = s.position and T(_("Book %1 of %2"), s.position, s.name) or s.name
-            line(txt, Font:getFace("cfont", 17), { gray = true })
+            line(txt, face("cfont", 0.95))
         end
     end
 
@@ -216,7 +227,7 @@ function HardcoverView:init()
         self.body = ScrollHtmlWidget:new{
             html_body = html,
             css = CSS,
-            default_font_size = Screen:scaleBySize(18),
+            default_font_size = Screen:scaleBySize(base),
             width = inner_w,
             height = body_h,
             dialog = self,

@@ -37,6 +37,7 @@ query Book($id: Int!) {
     ratings_count
     pages
     image { url }
+    cached_image
     contributions {
       contribution
       author { name }
