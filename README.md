@@ -46,3 +46,9 @@ Without a client ID, use a personal token with the `read:catalog` scope (<https:
 **Font size** (default 20) sets the text size of the info screen.
 
 The book is matched by ISBN, then title and author. If unsure, a list of candidates is shown. The match and details are cached per book; use **Refresh** to re-fetch or **Change matched book…** to fix a wrong match.
+
+## Bookshelf patch
+
+[`patches/2-bookshelf-hardcover-year.lua`](patches/2-bookshelf-hardcover-year.lua) adds a `%hardcover_year` token to [Bookshelf](https://github.com/AndyHazz/bookshelf.koplugin). Copy it into KOReader's `patches` folder and restart.
+
+The year comes from this plugin's per-book cache, so it is empty until the book has been looked up. Conditionals work, e.g. `[if:hardcover_year] (%hardcover_year)[/if]`.
