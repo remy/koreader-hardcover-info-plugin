@@ -24,7 +24,7 @@ local OAUTH_KEY = "hardcoverinfo_oauth"
 local SCOPE = "read:catalog"
 -- Public client ID of the Hardcover OAuth app ("Mobile, desktop, or CLI",
 -- Device Authorization Grant on, scope read:catalog). Empty disables sign-in.
-local CLIENT_ID = ""
+local CLIENT_ID = "78640659-b53c-42ad-9c03-68ac0487677c"
 
 local HardcoverInfo = WidgetContainer:extend{
     name = "hardcoverinfo",

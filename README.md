@@ -24,7 +24,7 @@ Sign-in needs a Hardcover OAuth app:
    - Application type: *Mobile, desktop, or CLI*
    - Device Authorization Grant: on
    - Scopes: `read:catalog`
-2. Put its client ID in `CLIENT_ID` at the top of `hardcoverinfo.koplugin/main.lua`. It is public; no secret is needed.
+2. Put its client ID in `CLIENT_ID` at the top of `hardcoverinfo.koplugin/main.lua` (already set). It is public; no secret is needed.
 
 ### Personal token (fallback)
 
