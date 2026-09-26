@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="112" fill="#1f2a44"/>
+  <!-- e-reader -->
+  <rect x="136" y="76" width="220" height="320" rx="28" fill="#e9e5dc"/>
+  <rect x="160" y="104" width="172" height="232" rx="8" fill="#faf8f2"/>
+  <!-- text lines -->
+  <g fill="#b9b3a6">
+    <rect x="182" y="130" width="128" height="12" rx="6"/>
+    <rect x="182" y="160" width="112" height="12" rx="6"/>
+    <rect x="182" y="190" width="128" height="12" rx="6"/>
+    <rect x="182" y="220" width="84" height="12" rx="6"/>
+  </g>
+  <rect x="226" y="356" width="40" height="10" rx="5" fill="#b9b3a6"/>
+  <!-- info badge -->
+  <circle cx="350" cy="352" r="84" fill="#f2b134" stroke="#1f2a44" stroke-width="16"/>
+  <circle cx="350" cy="310" r="14" fill="#1f2a44"/>
+  <rect x="337" y="336" width="26" height="64" rx="10" fill="#1f2a44"/>
+</svg>
