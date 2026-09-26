@@ -20,6 +20,11 @@ local Api = require("hardcoverinfo_api")
 local TOKEN_KEY = "hardcoverinfo_token"
 local CACHE_KEY = "hardcoverinfo"
 local TOKEN_URL = "https://hardcover.app/account/api?scope=read:catalog"
+local OAUTH_KEY = "hardcoverinfo_oauth"
+local SCOPE = "read:catalog"
+-- Public client ID of the Hardcover OAuth app ("Mobile, desktop, or CLI",
+-- Device Authorization Grant on, scope read:catalog). Empty disables sign-in.
+local CLIENT_ID = ""
 
 local HardcoverInfo = WidgetContainer:extend{
     name = "hardcoverinfo",
@@ -215,7 +220,21 @@ function HardcoverInfo:addToMainMenu(menu_items)
                 separator = true,
             },
             {
-                text = _("API token…"),
+                text_func = function()
+                    return G_reader_settings:readSetting(OAUTH_KEY) and _("Sign out of Hardcover")
+                        or _("Sign in to Hardcover")
+                end,
+                enabled_func = function() return CLIENT_ID ~= "" end,
+                callback = function()
+                    if G_reader_settings:readSetting(OAUTH_KEY) then
+                        self:signOut()
+                    else
+                        self:signIn()
+                    end
+                end,
+            },
+            {
+                text = _("Personal API token…"),
                 keep_menu_open = true,
                 callback = function() self:editToken() end,
             },
@@ -223,9 +242,18 @@ function HardcoverInfo:addToMainMenu(menu_items)
     }
 end
 
--- Token -----------------------------------------------------------------------
+-- Auth ------------------------------------------------------------------------
 
-function HardcoverInfo:getToken()
+local function saveOAuth(res)
+    G_reader_settings:saveSetting(OAUTH_KEY, {
+        access_token = res.access_token,
+        refresh_token = res.refresh_token,
+        expires_at = os.time() + (tonumber(res.expires_in) or 3600),
+    })
+    G_reader_settings:flush()
+end
+
+function HardcoverInfo:getPersonalToken()
     local token = G_reader_settings:readSetting(TOKEN_KEY)
     if not str(token) and self.path then
         local f = io.open(self.path .. "/token.txt", "r")
@@ -236,6 +264,129 @@ function HardcoverInfo:getToken()
     end
     token = str(token) and util.trim(token):gsub("^[Bb]earer%s+", "")
     return str(token)
+end
+
+function HardcoverInfo:hasCredentials()
+    return G_reader_settings:readSetting(OAUTH_KEY) ~= nil or self:getPersonalToken() ~= nil
+end
+
+-- Refresh tokens rotate on every use: save the new pair straight away.
+function HardcoverInfo:refreshOAuth()
+    local oauth = G_reader_settings:readSetting(OAUTH_KEY)
+    if not oauth then return nil, _("Not signed in.") end
+    local res, err, code = Api.oauth("token", {
+        grant_type = "refresh_token",
+        refresh_token = oauth.refresh_token,
+        client_id = CLIENT_ID,
+    })
+    if res and str(res.access_token) then
+        saveOAuth(res)
+        return res.access_token
+    end
+    if code then
+        -- Refresh token rejected: session is gone.
+        G_reader_settings:delSetting(OAUTH_KEY)
+        return nil, _("Hardcover session expired. Sign in again.")
+    end
+    return nil, err
+end
+
+function HardcoverInfo:getToken()
+    local oauth = G_reader_settings:readSetting(OAUTH_KEY)
+    if oauth then
+        if (oauth.expires_at or 0) - 300 > os.time() then
+            return oauth.access_token
+        end
+        return self:refreshOAuth()
+    end
+    return self:getPersonalToken() or nil, _("Not signed in to Hardcover.")
+end
+
+-- Call fn(token, ...) and retry once with a refreshed OAuth token on 401.
+function HardcoverInfo:api(fn, ...)
+    local token, err = self:getToken()
+    if not token then return nil, err end
+    local res, code
+    res, err, code = fn(token, ...)
+    if code == 401 and G_reader_settings:readSetting(OAUTH_KEY) then
+        token, err = self:refreshOAuth()
+        if not token then return nil, err end
+        res, err = fn(token, ...)
+    end
+    return res, err
+end
+
+function HardcoverInfo:signIn(on_success)
+    if CLIENT_ID == "" then
+        return self:showError(_("No OAuth client ID configured. Use a personal API token instead."))
+    end
+    NetworkMgr:runWhenOnline(function()
+        local device, err = withLoading(_("Contacting Hardcover…"), function()
+            return Api.oauth("device", { client_id = CLIENT_ID, scope = SCOPE })
+        end)
+        if not device or not str(device.device_code) then
+            return self:showError(err or _("Invalid response from Hardcover."), _("Hardcover sign-in failed:"))
+        end
+
+        local interval = tonumber(device.interval) or 5
+        local deadline = os.time() + (tonumber(device.expires_in) or 900)
+        local done = false
+        local msg = InfoMessage:new{
+            text = T(_("On your phone or computer, go to:\n%1\n\nand enter the code:\n\n%2\n\nWaiting for approval… Tap to cancel."),
+                device.verification_uri or "https://hardcover.app/link", device.user_code),
+            dismiss_callback = function() done = true end,
+        }
+        UIManager:show(msg)
+
+        local function finish(text)
+            done = true
+            UIManager:close(msg)
+            if text then UIManager:show(InfoMessage:new{ text = text, timeout = 3 }) end
+        end
+
+        local poll
+        poll = function()
+            if done then return end
+            if os.time() > deadline then
+                return finish(_("Code expired. Try signing in again."))
+            end
+            local res, perr, code = Api.oauth("token", {
+                grant_type = "urn:ietf:params:oauth:grant-type:device_code",
+                device_code = device.device_code,
+                client_id = CLIENT_ID,
+            })
+            if done then return end
+            if res and str(res.access_token) then
+                saveOAuth(res)
+                finish(_("Signed in to Hardcover."))
+                if on_success then UIManager:scheduleIn(1, on_success) end
+                return
+            end
+            if code == "slow_down" then interval = interval + 5 end
+            -- Keep polling while pending, and through transient network errors.
+            if code == nil or code == "authorization_pending" or code == "slow_down" then
+                return UIManager:scheduleIn(interval, poll)
+            end
+            finish()
+            self:showError(code == "access_denied" and _("Access denied.") or perr, _("Hardcover sign-in failed:"))
+        end
+        UIManager:scheduleIn(interval, poll)
+    end)
+end
+
+function HardcoverInfo:signOut()
+    local oauth = G_reader_settings:readSetting(OAUTH_KEY)
+    G_reader_settings:delSetting(OAUTH_KEY)
+    G_reader_settings:flush()
+    -- Best effort: revoke so the session disappears from Hardcover's authorised apps.
+    if oauth and NetworkMgr.isOnline and NetworkMgr:isOnline() then
+        Api.oauth("revoke", {
+            token = oauth.refresh_token,
+            token_type_hint = "refresh_token",
+            client_id = CLIENT_ID,
+        })
+    end
+    UIManager:show(InfoMessage:new{ text = _("Signed out of Hardcover."), timeout = 2 })
 end
 
 function HardcoverInfo:editToken()
@@ -276,6 +427,18 @@ function HardcoverInfo:editToken()
     dialog:onShowKeyboard()
 end
 
+-- Returns true if credentials exist; otherwise starts sign-in and runs
+-- on_success once signed in.
+function HardcoverInfo:requireAuth(on_success)
+    if self:hasCredentials() then return true end
+    if CLIENT_ID ~= "" then
+        self:signIn(on_success)
+    else
+        self:editToken()
+    end
+    return false
+end
+
 -- Lookup ----------------------------------------------------------------------
 
 function HardcoverInfo:getDocInfo()
@@ -293,62 +456,49 @@ function HardcoverInfo:getDocInfo()
     }
 end
 
-function HardcoverInfo:requireToken()
-    local token = self:getToken()
-    if not token then
-        UIManager:show(InfoMessage:new{
-            text = T(_("No Hardcover API token set.\n\nCreate one at:\n%1"), TOKEN_URL),
-        })
-        self:editToken()
-    end
-    return token
-end
-
 function HardcoverInfo:showInfo(force_refresh)
     if not self.ui.document then return end
     local cached = self.ui.doc_settings:readSetting(CACHE_KEY)
     if cached and cached.book and not force_refresh then
         return self:display(cached.book)
     end
-    local token = self:requireToken()
-    if not token then return end
+    if not self:requireAuth(function() self:showInfo(force_refresh) end) then return end
     NetworkMgr:runWhenOnline(function()
         if cached and cached.id then
-            self:fetchAndShow(token, cached.id)
+            self:fetchAndShow(cached.id)
         else
-            self:autoMatch(token)
+            self:autoMatch()
         end
     end)
 end
 
-function HardcoverInfo:search(token, query)
+function HardcoverInfo:search(query)
     return withLoading(T(_("Searching Hardcover for:\n%1"), query), function()
-        return Api.search(token, query)
+        return self:api(Api.search, query)
     end)
 end
 
-function HardcoverInfo:autoMatch(token)
+function HardcoverInfo:autoMatch()
     local info = self:getDocInfo()
     local hits, err
     if info.isbn then
-        hits, err = self:search(token, info.isbn)
+        hits, err = self:search(info.isbn)
         if hits and hits[1] then
-            return self:fetchAndShow(token, hits[1].id)
+            return self:fetchAndShow(hits[1].id)
         end
     end
     local query = util.trim(info.title .. " " .. (info.author or ""))
     if query == "" then return self:manualSearch() end
-    hits, err = self:search(token, query)
+    hits, err = self:search(query)
     if not hits then return self:showError(err) end
     if hits[1] and normalise(hits[1].title) == normalise(info.title) then
-        return self:fetchAndShow(token, hits[1].id)
+        return self:fetchAndShow(hits[1].id)
     end
-    self:chooseResult(token, hits, query)
+    self:chooseResult(hits, query)
 end
 
 function HardcoverInfo:manualSearch()
-    local token = self:requireToken()
-    if not token then return end
+    if not self:requireAuth(function() self:manualSearch() end) then return end
     local info = self:getDocInfo()
     local dialog
     dialog = InputDialog:new{
@@ -368,9 +518,9 @@ function HardcoverInfo:manualSearch()
                     UIManager:close(dialog)
                     if query == "" then return end
                     NetworkMgr:runWhenOnline(function()
-                        local hits, err = self:search(token, query)
+                        local hits, err = self:search(query)
                         if not hits then return self:showError(err) end
-                        self:chooseResult(token, hits, query)
+                        self:chooseResult(hits, query)
                     end)
                 end,
             },
@@ -380,7 +530,7 @@ function HardcoverInfo:manualSearch()
     dialog:onShowKeyboard()
 end
 
-function HardcoverInfo:chooseResult(token, hits, query)
+function HardcoverInfo:chooseResult(hits, query)
     local dialog
     local buttons = {}
     for __, hit in ipairs(hits) do
@@ -392,7 +542,7 @@ function HardcoverInfo:chooseResult(token, hits, query)
             align = "left",
             callback = function()
                 UIManager:close(dialog)
-                self:fetchAndShow(token, hit.id)
+                self:fetchAndShow(hit.id)
             end,
         }})
     end
@@ -417,9 +567,9 @@ function HardcoverInfo:chooseResult(token, hits, query)
     UIManager:show(dialog)
 end
 
-function HardcoverInfo:fetchAndShow(token, id)
+function HardcoverInfo:fetchAndShow(id)
     local book, err = withLoading(_("Fetching book from Hardcover…"), function()
-        return Api.getBook(token, id)
+        return self:api(Api.getBook, id)
     end)
     if not book then return self:showError(err) end
     local vm = toViewModel(book)
@@ -434,9 +584,9 @@ function HardcoverInfo:display(vm)
     })
 end
 
-function HardcoverInfo:showError(err)
+function HardcoverInfo:showError(err, heading)
     UIManager:show(InfoMessage:new{
-        text = T(_("Hardcover lookup failed:\n%1"), tostring(err)),
+        text = (heading or _("Hardcover lookup failed:")) .. "\n" .. tostring(err),
     })
 end
 
@@ -444,5 +594,6 @@ end
 HardcoverInfo._toViewModel = toViewModel
 HardcoverInfo._formatInfo = formatInfo
 HardcoverInfo._findIsbn = findIsbn
+HardcoverInfo._setClientId = function(id) CLIENT_ID = id end
 
 return HardcoverInfo

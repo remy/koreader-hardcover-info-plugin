@@ -12,12 +12,23 @@ Shows details of the open book from [Hardcover](https://hardcover.app):
 
 Copy `hardcoverinfo.koplugin` into KOReader's `plugins` folder and restart.
 
-## API token
+## Sign in
 
-1. Create a token with the `read:catalog` scope: <https://hardcover.app/account/api?scope=read:catalog>
-2. Either:
-   - paste it in **Search → Hardcover book info → API token…**, or
-   - save it as `hardcoverinfo.koplugin/token.txt` (easier than typing on an e-reader).
+**Search → Hardcover book info → Sign in to Hardcover** shows a code. On a phone or computer, go to <https://hardcover.app/link>, enter the code and approve. The plugin picks up the token automatically and refreshes it as needed. **Sign out** revokes it.
+
+### One-off setup (plugin maintainer)
+
+Sign-in needs a Hardcover OAuth app:
+
+1. Create one under Developer Apps on <https://hardcover.app/account/api>.
+   - Application type: *Mobile, desktop, or CLI*
+   - Device Authorization Grant: on
+   - Scopes: `read:catalog`
+2. Put its client ID in `CLIENT_ID` at the top of `hardcoverinfo.koplugin/main.lua`. It is public; no secret is needed.
+
+### Personal token (fallback)
+
+Without a client ID, use a personal token with the `read:catalog` scope (<https://hardcover.app/account/api?scope=read:catalog>): paste it in **Personal API token…** or save it as `hardcoverinfo.koplugin/token.txt`.
 
 ## Use
 

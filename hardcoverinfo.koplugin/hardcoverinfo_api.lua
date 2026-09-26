@@ -11,6 +11,7 @@ local socket = require("socket")
 local socketutil = require("socketutil")
 
 local API_URL = "https://api.hardcover.app/v1/graphql"
+local OAUTH_URL = "https://api.hardcover.app/oauth2/"
 local USER_AGENT = "KOReader hardcoverinfo plugin"
 
 local SEARCH_QUERY = [[
@@ -83,24 +84,40 @@ local function errorMessage(code, body)
     return string.format("HTTP %s%s", tostring(code), detail and (": " .. tostring(detail)) or "")
 end
 
-function Api.request(token, query, variables)
-    local body = JSON.encode({ query = query, variables = variables })
+local function post(url, body, content_type, token)
+    local headers = {
+        ["Content-Type"] = content_type,
+        ["Content-Length"] = tostring(#body),
+        ["Accept"] = "application/json",
+        ["User-Agent"] = USER_AGENT,
+    }
+    if token then headers["Authorization"] = "Bearer " .. token end
     local sink = {}
     socketutil:set_timeout(socketutil.LARGE_BLOCK_TIMEOUT, socketutil.LARGE_TOTAL_TIMEOUT)
     local code, _, status = socket.skip(1, http.request{
-        url = API_URL,
+        url = url,
         method = "POST",
-        headers = {
-            ["Content-Type"] = "application/json",
-            ["Content-Length"] = tostring(#body),
-            ["Authorization"] = "Bearer " .. token,
-            ["User-Agent"] = USER_AGENT,
-        },
+        headers = headers,
         source = ltn12.source.string(body),
         sink = ltn12.sink.table(sink),
     })
     socketutil:reset_timeout()
-    local response = table.concat(sink)
+    return code, table.concat(sink), status
+end
+
+local function formEncode(params)
+    local parts = {}
+    for k, v in pairs(params) do
+        v = tostring(v):gsub("[^%w%-%._~]", function(c) return string.format("%%%02X", c:byte()) end)
+        table.insert(parts, k .. "=" .. v)
+    end
+    return table.concat(parts, "&")
+end
+
+-- Returns data, or nil, error message, HTTP code.
+function Api.request(token, query, variables)
+    local code, response, status = post(API_URL, JSON.encode({ query = query, variables = variables }),
+        "application/json", token)
 
     if type(code) ~= "number" then
         logger.warn("Hardcover: request failed", code, status)
@@ -108,7 +125,7 @@ function Api.request(token, query, variables)
     end
     if code ~= 200 then
         logger.warn("Hardcover: HTTP", code, response)
-        return nil, errorMessage(code, response)
+        return nil, errorMessage(code, response), code
     end
 
     local ok, data = pcall(JSON.decode, response)
@@ -122,10 +139,28 @@ function Api.request(token, query, variables)
     return data.data
 end
 
+-- OAuth endpoint call ("device", "token" or "revoke").
+-- Returns the decoded body, or nil, error message, OAuth error code (nil on network failure).
+function Api.oauth(endpoint, params)
+    local code, response, status = post(OAUTH_URL .. endpoint, formEncode(params),
+        "application/x-www-form-urlencoded")
+    if type(code) ~= "number" then
+        logger.warn("Hardcover: OAuth request failed", code, status)
+        return nil, "Network error: " .. tostring(code or status)
+    end
+    local ok, data = pcall(JSON.decode, response)
+    data = ok and type(data) == "table" and data or {}
+    if code ~= 200 then
+        local err = type(data.error) == "string" and data.error or ("http_" .. code)
+        return nil, tostring(data.error_description or err), err
+    end
+    return data
+end
+
 -- Returns a list of { id, title, authors, year, series } tables.
 function Api.search(token, query, per_page)
-    local data, err = Api.request(token, SEARCH_QUERY, { q = query, per_page = per_page or 8 })
-    if not data then return nil, err end
+    local data, err, code = Api.request(token, SEARCH_QUERY, { q = query, per_page = per_page or 8 })
+    if not data then return nil, err, code end
     local results = data.search and data.search.results
     if type(results) == "string" then
         local ok, decoded = pcall(JSON.decode, results)
@@ -149,8 +184,8 @@ function Api.search(token, query, per_page)
 end
 
 function Api.getBook(token, id)
-    local data, err = Api.request(token, BOOK_QUERY, { id = id })
-    if not data then return nil, err end
+    local data, err, code = Api.request(token, BOOK_QUERY, { id = id })
+    if not data then return nil, err, code end
     if type(data.books_by_pk) ~= "table" then
         return nil, "Book not found on Hardcover."
     end
