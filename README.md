@@ -37,4 +37,6 @@ Without a client ID, use a personal token with the `read:catalog` scope (<https:
 
 **☰ → Hardcover book info → Show book info** (below *Book information*), or assign the *Hardcover book info* gesture.
 
+**Font size** (default 20) sets the text size of the info screen.
+
 The book is matched by ISBN, then title and author. If unsure, a list of candidates is shown. The match and details are cached per book; use **Refresh** to re-fetch or **Change matched book…** to fix a wrong match.

@@ -8,6 +8,7 @@ local Dispatcher = require("dispatcher")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local NetworkMgr = require("ui/network/manager")
+local SpinWidget = require("ui/widget/spinwidget")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local lfs = require("libs/libkoreader-lfs")
@@ -30,6 +31,8 @@ local COVER_DIR = DataStorage:getFullDataDir() .. "/cache/hardcoverinfo"
 
 local TOKEN_KEY = "hardcoverinfo_token"
 local CACHE_KEY = "hardcoverinfo"
+local FONT_SIZE_KEY = "hardcoverinfo_font_size"
+local DEFAULT_FONT_SIZE = 20
 -- Bump when the cached view model changes shape, forcing a re-fetch.
 local CACHE_VERSION = 2
 local TOKEN_URL = "https://hardcover.app/account/api?scope=read:catalog"
@@ -187,6 +190,26 @@ function HardcoverInfo:addToMainMenu(menu_items)
                 text = _("Change matched book…"),
                 enabled_func = has_doc,
                 callback = function() self:manualSearch() end,
+                separator = true,
+            },
+            {
+                text_func = function()
+                    return T(_("Font size: %1"), G_reader_settings:readSetting(FONT_SIZE_KEY, DEFAULT_FONT_SIZE))
+                end,
+                keep_menu_open = true,
+                callback = function(touchmenu_instance)
+                    UIManager:show(SpinWidget:new{
+                        value = G_reader_settings:readSetting(FONT_SIZE_KEY, DEFAULT_FONT_SIZE),
+                        value_min = 12,
+                        value_max = 40,
+                        default_value = DEFAULT_FONT_SIZE,
+                        title_text = _("Hardcover info font size"),
+                        callback = function(spin)
+                            G_reader_settings:saveSetting(FONT_SIZE_KEY, spin.value)
+                            if touchmenu_instance then touchmenu_instance:updateItems() end
+                        end,
+                    })
+                end,
                 separator = true,
             },
             {
@@ -563,7 +586,11 @@ function HardcoverInfo:downloadCover(id, url)
 end
 
 function HardcoverInfo:display(vm)
-    UIManager:show(HardcoverView:new{ vm = vm, cover_file = vm.cover_file })
+    UIManager:show(HardcoverView:new{
+        vm = vm,
+        cover_file = vm.cover_file,
+        font_size = G_reader_settings:readSetting(FONT_SIZE_KEY, DEFAULT_FONT_SIZE),
+    })
 end
 
 function HardcoverInfo:showError(err, heading)
