@@ -1,6 +1,6 @@
 # Hardcover info for KOReader
 
-> [!WARNING]
+> [!NOTE]
 > **Disclaimer:** this plugin was written by an LLM (Claude). It was tested by Remy on a Kindle Voyager running KOReader. Use at your own risk.
 
 Shows details of the open book from [Hardcover](https://hardcover.app):
